@@ -14,7 +14,7 @@ export UV_CONCURRENT_INSTALLS=5
 export UV_REQUEST_TIMEOUT=360
 
 venv:
-	uv venv --seed --python 3.12.8 venv
+	uv venv --seed --python 3.9.16 venv
 
 install-dev:
 	@uv pip install --upgrade "pip>=24.3.1,<=25.0.1" "setuptools>=75.8.0,<=77.0.3" "wheel>=0.45.1,<=0.45.10" "hatch>=1.9.1,<1.10.0" --no-cache;
@@ -33,3 +33,9 @@ run-local:
 		--output_table GOOGLE_CLOUD_PROJECT:BIGQUERY_DATASET.BIGQUERY_TABLE \
 		--job_name vcf-to-bigquery-direct-runner \
 		--temp_location "${TEMP_LOCATION}"
+
+clean-refresh:
+	@rm -rf venv;
+
+print-info:
+	@echo "on-behalf-of @dataxight@dataxight.com"

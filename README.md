@@ -126,9 +126,9 @@ python3 -m venv venv3
 source venv3/bin/activate
 git clone https://github.com/googlegenomics/gcp-variant-transforms.git
 cd gcp-variant-transforms
-python -m pip install --upgrade pip
-python -m pip install --upgrade wheel
-python -m pip install --upgrade .
+python3 -m pip install --upgrade pip
+python3 -m pip install --upgrade wheel
+python3 -m pip install --upgrade .
 ```
 
 You may use the
@@ -141,7 +141,7 @@ Dataflow, but may be stored locally for DirectRunner.
 Example command for DirectRunner:
 
 ```bash
-python -m gcp_variant_transforms.vcf_to_bq \
+python3 -m gcp_variant_transforms.vcf_to_bq \
   --input_pattern gcp_variant_transforms/testing/data/vcf/valid-4.0.vcf \
   --output_table GOOGLE_CLOUD_PROJECT:BIGQUERY_DATASET.BIGQUERY_TABLE \
   --job_name vcf-to-bigquery-direct-runner \
@@ -151,7 +151,7 @@ python -m gcp_variant_transforms.vcf_to_bq \
 Example command for DataflowRunner:
 
 ```bash
-python -m gcp_variant_transforms.vcf_to_bq \
+python3 -m gcp_variant_transforms.vcf_to_bq \
   --input_pattern gs://BUCKET/*.vcf \
   --output_table GOOGLE_CLOUD_PROJECT:BIGQUERY_DATASET.BIGQUERY_TABLE \
   --job_name vcf-to-bigquery \

@@ -26,3 +26,10 @@ install: install-dev install-application
 
 build:
 	uv pip install -e .
+
+run-local:
+	python3 -m gcp_variant_transforms.vcf_to_bq \
+		--input_pattern gcp_variant_transforms/testing/data/vcf/valid-4.0.vcf \
+		--output_table GOOGLE_CLOUD_PROJECT:BIGQUERY_DATASET.BIGQUERY_TABLE \
+		--job_name vcf-to-bigquery-direct-runner \
+		--temp_location "${TEMP_LOCATION}"

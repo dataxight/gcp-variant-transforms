@@ -38,4 +38,4 @@ clean-refresh:
 	@rm -rf venv;
 
 print-info:
-	@echo "on-behalf-of @dataxight baott@dataxight.com"
+	@echo "on-behalf-of: @dataxight baott@dataxight.com"

@@ -142,7 +142,7 @@ class BGZFBlockSource(textio._TextSource):
     # contains sample info that is unique for `file_name`) to `header_lines`.
     with open_bgzf(file_name) as file_to_read:
       self._process_header(file_to_read, read_buffer)
-    with self.open_file(file_name) as file_to_read:
+    with open_bgzf(file_name) as file_to_read:
       while True:
         record = file_to_read.readline()
         if not record or not record.strip():

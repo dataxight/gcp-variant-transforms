@@ -1,0 +1,14 @@
+pysam
+cython
+setuptools
+apache-beam[gcp]==2.65.0
+avro-python3
+google-cloud-core
+google-api-python-client
+intervaltree
+mmh3
+mock
+google-cloud-storage
+pyfarmhash
+pyyaml
+nose

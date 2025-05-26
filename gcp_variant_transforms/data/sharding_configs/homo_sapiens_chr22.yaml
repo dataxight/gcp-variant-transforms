@@ -1,0 +1,6 @@
+-  output_table:
+     table_name_suffix: "chr22"
+     regions:
+       - "chr22"
+       - "22"
+     partition_range_end: 18,130,862

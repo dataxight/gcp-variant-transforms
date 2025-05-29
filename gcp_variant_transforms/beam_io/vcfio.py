@@ -229,7 +229,7 @@ class _VcfSource(filebasedsource.FileBasedSource):
                    range_tracker  # type: range_trackers.OffsetRangeTracker
                   ):
     # type: (...) -> Iterable[MalformedVcfRecord]
-    record_iterator = vcf_parser.PySamParser(
+    record_iterator = vcf_parser.PySamStringIO(
         file_name,
         range_tracker,
         self._compression_type,

@@ -29,6 +29,8 @@ from apache_beam.coders import coders
 from apache_beam.io import filesystems
 from apache_beam.io import textio
 from pysam import libcbcf
+import pysam
+from io import StringIO
 
 from gcp_variant_transforms.beam_io import bgzf
 from gcp_variant_transforms.libs import hashing_util
@@ -314,11 +316,11 @@ class VcfParser():
           **kwargs)
     else:
       text_source = textio._TextSource(
-          file_pattern,
-          0,  # min_bundle_size
-          compression_type,
-          True,  # strip_trailing_newlines
-          coders.StrUtf8Coder(),  # coder
+          file_pattern=file_pattern,
+          min_bundle_size=0,  # min_bundle_size
+          compression_type=compression_type,
+          strip_trailing_newlines=True,  # strip_trailing_newlines
+          coder=coders.StrUtf8Coder(),  # coder
           validate=False,
           header_processor_fns=(
               lambda x: not x.strip() or x.startswith('#'),
@@ -416,6 +418,7 @@ class VcfParser():
     Note: this method will be called by next(), one line at a time.
     """
     raise NotImplementedError
+
 
 
 class PySamParser(VcfParser):
@@ -692,3 +695,67 @@ class PySamParser(VcfParser):
       calls.append(VariantCall(encoded_name, name, genotype, phaseset, info))
 
     return hom_ref_calls, calls
+
+class PySamStringIO(PySamParser):
+  def __init__(
+    self,
+    file_name,  # type: str
+    range_tracker,  # type: range_trackers.OffsetRangeTracker
+    compression_type,  # type: str
+    allow_malformed_records,  # type: bool
+    file_pattern=None,  # type: str
+    representative_header_lines=None,  # type:  List[str]
+    splittable_bgzf=False,  # type: bool
+    pre_infer_headers=False,  # type: bool
+    sample_name_encoding=SampleNameEncoding.WITHOUT_FILE_PATH,  # type: int
+    use_1_based_coordinate=False,  # type: bool
+    move_hom_ref_calls=False,  # type: bool
+    **kwargs  # type: **str
+    ):
+    # type: (...) -> None
+    super().__init__(file_name,
+                    range_tracker,
+                    file_pattern,
+                    compression_type,
+                    allow_malformed_records,
+                    representative_header_lines,
+                    splittable_bgzf,
+                    pre_infer_headers,
+                    sample_name_encoding,
+                    use_1_based_coordinate,
+                    move_hom_ref_calls,
+                    **kwargs)
+    # These members will be properly initiated in _init_parent_process().
+    self._vcf_reader = None
+    self._to_child = None
+    self._original_info_list = None
+    self._process_pid = None
+    self._encoded_sample_names = {}
+
+  def _init_with_header(self, header_lines):
+    self._header_lines = header_lines
+
+  def _get_variant(self, data_line):
+    """
+    Parse a single VCF line from a string
+    
+    Args:
+        data_line: Single VCF data line as string
+    
+    Returns:
+        Parsed variant record
+    """
+    vcf_content = "\n".join(self._header_lines) + "\n" + data_line
+    read_fd, write_fd = os.pipe()
+    with os.fdopen(write_fd, "w") as write_pipe:
+            write_pipe.write(vcf_content)
+    try:
+        vcf_reader = pysam.VariantFile(read_fd)
+        record = next(iter(vcf_reader))
+        variant = self._convert_to_variant(record)
+        vcf_reader.close()
+        return variant
+    except Exception as e:
+        print(f"Error parsing VCF line: {e}")
+        return None
+

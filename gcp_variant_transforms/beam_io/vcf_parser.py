@@ -30,6 +30,7 @@ from apache_beam.io import filesystems
 from apache_beam.io import textio
 from pysam import libcbcf
 import pysam
+import tempfile
 from io import StringIO
 
 from gcp_variant_transforms.beam_io import bgzf
@@ -713,17 +714,17 @@ class PySamStringIO(PySamParser):
     **kwargs  # type: **str
     ):
     # type: (...) -> None
-    super().__init__(file_name,
-                    range_tracker,
-                    file_pattern,
-                    compression_type,
-                    allow_malformed_records,
-                    representative_header_lines,
-                    splittable_bgzf,
-                    pre_infer_headers,
-                    sample_name_encoding,
-                    use_1_based_coordinate,
-                    move_hom_ref_calls,
+    super().__init__(file_name=file_name,
+                    range_tracker=range_tracker,
+                    file_pattern=file_pattern,
+                    compression_type=compression_type,
+                    allow_malformed_records=allow_malformed_records,
+                    representative_header_lines=representative_header_lines,
+                    splittable_bgzf=splittable_bgzf,
+                    pre_infer_headers=pre_infer_headers,
+                    sample_name_encoding=sample_name_encoding,
+                    use_1_based_coordinate=use_1_based_coordinate,
+                    move_hom_ref_calls=move_hom_ref_calls,
                     **kwargs)
     # These members will be properly initiated in _init_parent_process().
     self._vcf_reader = None
@@ -734,6 +735,11 @@ class PySamStringIO(PySamParser):
 
   def _init_with_header(self, header_lines):
     self._header_lines = header_lines
+    ### write header lines to a tmp file then parse it
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+        tmp_file.write("\n".join(header_lines).encode())
+        tmp_file_name = tmp_file.name
+    self._original_info_list = libcbcf.VariantFile(tmp_file_name).header.info.keys()
 
   def _get_variant(self, data_line):
     """
@@ -750,7 +756,7 @@ class PySamStringIO(PySamParser):
     with os.fdopen(write_fd, "w") as write_pipe:
             write_pipe.write(vcf_content)
     try:
-        vcf_reader = pysam.VariantFile(read_fd)
+        vcf_reader = libcbcf.VariantFile(read_fd)
         record = next(iter(vcf_reader))
         variant = self._convert_to_variant(record)
         vcf_reader.close()
@@ -758,4 +764,7 @@ class PySamStringIO(PySamParser):
     except Exception as e:
         print(f"Error parsing VCF line: {e}")
         return None
+
+  def send_kill_signal_to_child(self):
+    return
 

@@ -504,26 +504,22 @@ class PySamParser(VcfParser):
 
     from_parent.close()
     to_parent.close()
-    os._exit(0)
-
   def _init_with_header(self, header_lines):
-    # Following pipe is responsible for supplying lines from child process to
-    # the parent process, which will be fed into PySam object through an actual
-    # file descriptor.
     return_pipe_read, return_pipe_write = os.pipe()
-    # Since child process doesn't have access to the lines that need to be
-    # parsed, following pipe is needed to supply them from _get_variant() method
-    # into the child process, to be propagated back into the return pipe.
     send_pipe_read, send_pipe_write = os.pipe()
-    pid = os.fork()
-    if pid:
-      self._process_pid = pid
-      self._init_parent_process(return_pipe_read, send_pipe_write)
-    else:
-      self._init_child_process(send_pipe_read,
-                               return_pipe_write,
-                               header_lines,
-                               self._pre_infer_headers)
+
+    from multiprocessing import Process
+    import multiprocessing as mp
+
+    def child_process():
+      self._init_child_process(send_pipe_read, return_pipe_write, header_lines, self._pre_infer_headers)
+      os._exit(0)
+
+    mp.set_start_method('spawn', force=True)
+    process = Process(target=child_process)
+    process.start()
+    self._process_pid = process.pid
+    self._init_parent_process(return_pipe_read, send_pipe_write)
 
   def _get_variant(self, data_line):
     try:

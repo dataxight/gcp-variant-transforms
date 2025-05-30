@@ -699,7 +699,7 @@ class PySamParser(VcfParser):
 
     return hom_ref_calls, calls
 
-class StreamReader:
+class TextStreamer:
     """
     A class that manages a stream with file descriptors for writing and reading text lines.
     Uses socket.socketpair() to create connected sockets with file descriptors.
@@ -718,7 +718,6 @@ class StreamReader:
         
         # Create file objects from the sockets
         self.write_file = self.write_socket.makefile('w')
-        self.read_file = self.read_socket.makefile('r')
         
         self._closed = False
     
@@ -739,46 +738,9 @@ class StreamReader:
         self.write_file.write(line)
         self.write_file.flush()  # Ensure data is written immediately
     
-    def read_lines(self) -> Iterator[str]:
-        """
-        Iterate over lines from the stream using readline.
-        
-        Yields:
-            str: Each line read from the stream
-        """
-        if self._closed:
-            raise ValueError("StreamReader is closed")
-        
-        while True:
-            try:
-                line = self.read_file.readline()
-                if not line:  # EOF reached
-                    break
-                yield line.rstrip('\n')  # Remove trailing newline
-            except (ConnectionResetError, BrokenPipeError):
-                # Connection closed by writer
-                break
-    
-    def close_writer(self) -> None:
-        """Close the write side of the stream to signal EOF to readers."""
-        if not self._closed and hasattr(self, 'write_file'):
-            self.write_file.close()
-        if hasattr(self, 'write_socket'):
-            self.write_socket.close()
-    
     def close(self) -> None:
         """Close both read and write sides of the stream."""
         if not self._closed:
-            if hasattr(self, 'write_file'):
-                try:
-                    self.write_file.close()
-                except (OSError, ValueError):
-                    pass  # Already closed
-            if hasattr(self, 'read_file'):
-                try:
-                    self.read_file.close()
-                except (OSError, ValueError):
-                    pass  # Already closed
             if hasattr(self, 'write_socket'):
                 try:
                     self.write_socket.close()
@@ -790,14 +752,6 @@ class StreamReader:
                 except (OSError, ValueError):
                     pass  # Already closed
             self._closed = True
-    
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        self.close()
     
     @property
     def read_fd_number(self) -> int:
@@ -811,43 +765,7 @@ class StreamReader:
             raise ValueError("StreamReader is closed")
         return self.read_fd
     
-    @property
-    def write_fd_number(self) -> int:
-        """Get the write file descriptor number."""
-        return self.write_fd
-
-    def get_read_socket(self) -> socket.socket:
-        """
-        Get the read socket object for advanced client use.
-        
-        Returns:
-            socket.socket: The read socket object
-        """
-        if self._closed:
-            raise ValueError("StreamReader is closed")
-        return self.read_socket
-    
-    def detach_read_fd(self) -> int:
-        """
-        Detach and return the read file descriptor for exclusive client use.
-        After calling this, the StreamReader will no longer manage the read side.
-        
-        Returns:
-            int: The detached read file descriptor
-        """
-        if self._closed:
-            raise ValueError("StreamReader is closed")
-        
-        # Close our read file wrapper but keep the socket
-        if hasattr(self, 'read_file'):
-            self.read_file.close()
-            del self.read_file
-        
-        # Detach the socket and return its fd
-        read_fd = self.read_socket.detach()
-        return read_fd
-    
-class PySamStringIO(PySamParser):
+class PySamParserWithSocket(PySamParser):
   def __init__(
     self,
     file_name,  # type: str
@@ -882,8 +800,8 @@ class PySamStringIO(PySamParser):
     self._process_pid = None
     self._encoded_sample_names = {}
 
-    self.stream_reader = StreamReader()
-    self.vcf_reader = None
+    self._text_streamer = TextStreamer()
+    self._vcf_reader = None
 
   def _init_with_header(self, header_lines):
     self._header_lines = header_lines
@@ -892,7 +810,7 @@ class PySamStringIO(PySamParser):
         tmp_file.write("\n".join(header_lines).encode())
         tmp_file_name = tmp_file.name
     self._original_info_list = libcbcf.VariantFile(tmp_file_name).header.info.keys()
-    self.stream_reader.write_line("\n".join(header_lines))
+    self._text_streamer.write_line("\n".join(header_lines))
 
   def _get_variant(self, data_line):
     """
@@ -904,11 +822,11 @@ class PySamStringIO(PySamParser):
     Returns:
         Parsed variant record
     """
-    self.stream_reader.write_line(data_line)
+    self._text_streamer.write_line(data_line)
     try:
-        if self.vcf_reader is None:
-            self.vcf_reader = libcbcf.VariantFile(self.stream_reader.read_fd_number, 'r')
-        record = next(iter(self.vcf_reader))
+        if self._vcf_reader is None:
+            self._vcf_reader = libcbcf.VariantFile(self._text_streamer.read_fd_number, 'r')
+        record = next(iter(self._vcf_reader))
         variant = self._convert_to_variant(record)
         return variant
     except Exception as e:
@@ -916,7 +834,7 @@ class PySamStringIO(PySamParser):
         return None
 
   def send_kill_signal_to_child(self):
-    if self.vcf_reader is not None:
-        self.vcf_reader.close()
-    self.stream_reader.close()
+    if self._vcf_reader is not None:
+        self._vcf_reader.close()
+    self._text_streamer.close()
 

@@ -29,7 +29,12 @@ from apache_beam.coders import coders
 from apache_beam.io import filesystems
 from apache_beam.io import textio
 from pysam import libcbcf
+import pysam
+import tempfile
+from io import StringIO
 
+import socket
+from typing import Iterator
 from gcp_variant_transforms.beam_io import bgzf
 from gcp_variant_transforms.libs import hashing_util
 
@@ -314,11 +319,11 @@ class VcfParser():
           **kwargs)
     else:
       text_source = textio._TextSource(
-          file_pattern,
-          0,  # min_bundle_size
-          compression_type,
-          True,  # strip_trailing_newlines
-          coders.StrUtf8Coder(),  # coder
+          file_pattern=file_pattern,
+          min_bundle_size=0,  # min_bundle_size
+          compression_type=compression_type,
+          strip_trailing_newlines=True,  # strip_trailing_newlines
+          coder=coders.StrUtf8Coder(),  # coder
           validate=False,
           header_processor_fns=(
               lambda x: not x.strip() or x.startswith('#'),
@@ -416,6 +421,7 @@ class VcfParser():
     Note: this method will be called by next(), one line at a time.
     """
     raise NotImplementedError
+
 
 
 class PySamParser(VcfParser):
@@ -692,3 +698,143 @@ class PySamParser(VcfParser):
       calls.append(VariantCall(encoded_name, name, genotype, phaseset, info))
 
     return hom_ref_calls, calls
+
+class TextStreamer:
+    """
+    A class that manages a stream with file descriptors for writing and reading text lines.
+    Uses socket.socketpair() to create connected sockets with file descriptors.
+    """
+    
+    def __init__(self):
+        """Initialize the StreamReader with connected sockets for read/write operations."""
+        # Create a pair of connected sockets
+        self.read_socket, self.write_socket = socket.socketpair()
+        self.read_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)  # 1MB
+        self.write_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)  # 1MB
+        
+        # Get file descriptors
+        self.read_fd = self.read_socket.fileno()
+        self.write_fd = self.write_socket.fileno()
+        
+        # Create file objects from the sockets
+        self.write_file = self.write_socket.makefile('w')
+        
+        self._closed = False
+    
+    def write_line(self, line: str) -> None:
+        """
+        Write a text line to the stream.
+        
+        Args:
+            line (str): The text line to write to the stream
+        """
+        if self._closed:
+            raise ValueError("StreamReader is closed")
+        
+        # Ensure line ends with newline
+        if not line.endswith('\n'):
+            line += '\n'
+        
+        self.write_file.write(line)
+        self.write_file.flush()  # Ensure data is written immediately
+    
+    def close(self) -> None:
+        """Close both read and write sides of the stream."""
+        if not self._closed:
+            if hasattr(self, 'write_socket'):
+                try:
+                    self.write_socket.close()
+                except (OSError, ValueError):
+                    pass  # Already closed
+            if hasattr(self, 'read_socket'):
+                try:
+                    self.read_socket.close()
+                except (OSError, ValueError):
+                    pass  # Already closed
+            self._closed = True
+    
+    @property
+    def read_fd_number(self) -> int:
+        """
+        Get the read file descriptor for client use.
+        
+        Returns:
+            int: The read file descriptor that clients can use directly
+        """
+        if self._closed:
+            raise ValueError("StreamReader is closed")
+        return self.read_fd
+    
+class PySamParserWithSocket(PySamParser):
+  def __init__(
+    self,
+    file_name,  # type: str
+    range_tracker,  # type: range_trackers.OffsetRangeTracker
+    compression_type,  # type: str
+    allow_malformed_records,  # type: bool
+    file_pattern=None,  # type: str
+    representative_header_lines=None,  # type:  List[str]
+    splittable_bgzf=False,  # type: bool
+    pre_infer_headers=False,  # type: bool
+    sample_name_encoding=SampleNameEncoding.WITHOUT_FILE_PATH,  # type: int
+    use_1_based_coordinate=False,  # type: bool
+    move_hom_ref_calls=False,  # type: bool
+    **kwargs  # type: **str
+    ):
+    # type: (...) -> None
+    super().__init__(file_name=file_name,
+                    range_tracker=range_tracker,
+                    file_pattern=file_pattern,
+                    compression_type=compression_type,
+                    allow_malformed_records=allow_malformed_records,
+                    representative_header_lines=representative_header_lines,
+                    splittable_bgzf=splittable_bgzf,
+                    pre_infer_headers=pre_infer_headers,
+                    sample_name_encoding=sample_name_encoding,
+                    use_1_based_coordinate=use_1_based_coordinate,
+                    move_hom_ref_calls=move_hom_ref_calls,
+                    **kwargs)
+    # These members will be properly initiated in _init_parent_process().
+    self._to_child = None
+    self._original_info_list = None
+    self._process_pid = None
+    self._encoded_sample_names = {}
+
+    self._text_streamer = TextStreamer()
+    self._vcf_reader = None
+
+  def _init_with_header(self, header_lines):
+    self._header_lines = header_lines
+    ### write header lines to a tmp file then parse it
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+        tmp_file.write("\n".join(header_lines).encode())
+        tmp_file_name = tmp_file.name
+    self._original_info_list = libcbcf.VariantFile(tmp_file_name).header.info.keys()
+    self._text_streamer.write_line("\n".join(header_lines))
+
+  def _get_variant(self, data_line):
+    """
+    Parse a single VCF line from a string
+    
+    Args:
+        data_line: Single VCF data line as string
+    
+    Returns:
+        Parsed variant record
+    """
+    self._text_streamer.write_line(data_line)
+    try:
+        if self._vcf_reader is None:
+            self._vcf_reader = libcbcf.VariantFile(self._text_streamer.read_fd_number, 'r')
+        record = next(iter(self._vcf_reader))
+        variant = self._convert_to_variant(record)
+        return variant
+    except Exception as e:
+        print(f"Error parsing VCF line: {e}")
+        return None
+
+  def send_kill_signal_to_child(self):
+    if self._vcf_reader is not None:
+        self._vcf_reader.close()
+    self._text_streamer.close()
+

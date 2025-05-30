@@ -101,12 +101,12 @@ class VcfEstimateSourceTest(unittest.TestCase):
   def test_read_single_file_large(self):
     test_data_conifgs = [
         {'file': 'valid-4.0.vcf', 'variant_count': 4, 'size': 1500},
-        # {'file': 'valid-4.0.vcf.gz', 'variant_count': 13, 'size': 1454},
-        # {'file': 'valid-4.0.vcf.bz2', 'variant_count': 14, 'size': 1562},
-        # {'file': 'valid-4.1-large.vcf', 'variant_count': 14425, 'size': 832396},
-        # {'file': 'valid-4.1-large.vcf.gz', 'variant_count': 5498,
-        #  'size': 313430},
-        # {'file': 'valid-4.2.vcf', 'variant_count': 10, 'size': 3195},
+        {'file': 'valid-4.0.vcf.gz', 'variant_count': 13, 'size': 1454},
+        {'file': 'valid-4.0.vcf.bz2', 'variant_count': 14, 'size': 1562},
+        {'file': 'valid-4.1-large.vcf', 'variant_count': 14425, 'size': 832396},
+        {'file': 'valid-4.1-large.vcf.gz', 'variant_count': 5498,
+         'size': 313430},
+        {'file': 'valid-4.2.vcf', 'variant_count': 10, 'size': 3195},
     ]
     for config in test_data_conifgs:
       read_data = source_test_utils.read_from_source(VcfEstimateSource(

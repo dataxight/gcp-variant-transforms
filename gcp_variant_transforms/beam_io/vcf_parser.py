@@ -699,45 +699,63 @@ class PySamParser(VcfParser):
 
     return hom_ref_calls, calls
 
+import multiprocessing as mp
+
 class TextStreamer:
     """
     A class that manages a stream with file descriptors for writing and reading text lines.
     Uses socket.socketpair() to create connected sockets with file descriptors.
     """
-    
+
     def __init__(self):
         """Initialize the StreamReader with connected sockets for read/write operations."""
         # Create a pair of connected sockets
-        self.read_socket, self.write_socket = socket.socketpair()
-        self.read_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)  # 1MB
-        self.write_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)  # 1MB
-        
+        self.read_socket, self.write_socket = mp.Pipe(duplex=True)
+        # self.read_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)  # 1MB
+        # self.write_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)  # 1MB
+
         # Get file descriptors
         self.read_fd = self.read_socket.fileno()
         self.write_fd = self.write_socket.fileno()
-        
+
         # Create file objects from the sockets
-        self.write_file = self.write_socket.makefile('w')
-        
+        # Create StringIO instead of using makefile since Pipe doesn't support it
+        # self.write_file = self.write_socket.send
+        # self.read_file = os.fdopen(self.read_fd, 'r', encoding='utf-8')
+
         self._closed = False
-    
-    def write_line(self, line: str) -> None:
+
+    def send_line(self, line: str) -> None:
         """
         Write a text line to the stream.
-        
+
         Args:
             line (str): The text line to write to the stream
         """
         if self._closed:
             raise ValueError("StreamReader is closed")
-        
+
         # Ensure line ends with newline
         if not line.endswith('\n'):
             line += '\n'
-        
-        self.write_file.write(line)
-        self.write_file.flush()  # Ensure data is written immediately
-    
+
+        self.write_socket.send(line)
+        logging.debug("Send line %s", line)
+
+    def receive_line(self) -> str:
+        """
+        Read a text line from the stream.
+
+        Returns:
+            str: The text line read from the stream
+        """
+        if self._closed:
+            raise ValueError("StreamReader is closed")
+
+        line = self.read_socket.recv().encode('utf-8')
+        logging.debug("Received line %s", line)
+        return line
+
     def close(self) -> None:
         """Close both read and write sides of the stream."""
         if not self._closed:
@@ -752,19 +770,20 @@ class TextStreamer:
                 except (OSError, ValueError):
                     pass  # Already closed
             self._closed = True
-    
+
     @property
     def read_fd_number(self) -> int:
         """
         Get the read file descriptor for client use.
-        
+
         Returns:
             int: The read file descriptor that clients can use directly
         """
         if self._closed:
             raise ValueError("StreamReader is closed")
         return self.read_fd
-    
+
+
 class PySamParserWithSocket(PySamParser):
   def __init__(
     self,
@@ -810,31 +829,211 @@ class PySamParserWithSocket(PySamParser):
         tmp_file.write("\n".join(header_lines).encode())
         tmp_file_name = tmp_file.name
     self._original_info_list = libcbcf.VariantFile(tmp_file_name).header.info.keys()
-    self._text_streamer.write_line("\n".join(header_lines))
+    self._text_streamer.send_line("\n".join(header_lines))
 
   def _get_variant(self, data_line):
     """
     Parse a single VCF line from a string
-    
+
     Args:
         data_line: Single VCF data line as string
-    
+
     Returns:
         Parsed variant record
     """
-    self._text_streamer.write_line(data_line)
+    self._text_streamer.send_line(data_line)
+
     try:
         if self._vcf_reader is None:
-            self._vcf_reader = libcbcf.VariantFile(self._text_streamer.read_fd_number, 'r')
-        record = next(iter(self._vcf_reader))
+          # Write received data to a temporary file
+          with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp_file:
+            tmp_file.write(self._text_streamer.read_socket.recv())
+            tmp_file_name = tmp_file.name
+          self._vcf_reader = libcbcf.VariantFile(tmp_file_name, 'r')
+          os.unlink(tmp_file_name)
+        record = next(self._vcf_reader)
         variant = self._convert_to_variant(record)
         return variant
-    except Exception as e:
-        print(f"Error parsing VCF line: {e}")
-        return None
+    except (ValueError, StopIteration, TypeError) as e:
+      logging.warning('VCF record read failed in %s for line %s: %s',
+               self._file_name, data_line, str(e))
+      return MalformedVcfRecord(self._file_name, data_line, str(e))
+
+  def process_data(self, data_line):
+      send_process = mp.Process(target=self._get_variant, args=(self, data_line))
+      receive_process = mp.Process(target=self._get_variant, args=(self, data_line))
+      send_process.start()
+      receive_process.start()
+      send_process.join()
+      receive_process.join()
 
   def send_kill_signal_to_child(self):
     if self._vcf_reader is not None:
         self._vcf_reader.close()
     self._text_streamer.close()
 
+
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import queue
+import threading
+
+class PySamParserMultiprocess(PySamParser):
+    """
+    Multiprocess VCF parser for handling large VCF files (10GB+)
+    Reads file and distributes tasks to multiple processes
+    """
+
+    def __init__(
+      self,
+      file_name,  # type: str
+      range_tracker,  # type: range_trackers.OffsetRangeTracker
+      compression_type,  # type: str
+      allow_malformed_records,  # type: bool
+      file_pattern=None,  # type: str
+      representative_header_lines=None,  # type:  List[str]
+      splittable_bgzf=False,  # type: bool
+      pre_infer_headers=False,  # type: bool
+      sample_name_encoding=SampleNameEncoding.WITHOUT_FILE_PATH,  # type: int
+      use_1_based_coordinate=False,  # type: bool
+      move_hom_ref_calls=False,  # type: bool
+      chunk_size=1000,  # type: int
+      max_workers=None,  # type: int
+      **kwargs  # type: **str
+      ):
+      # type: (...) -> None
+      super().__init__(file_name=file_name,
+                      range_tracker=range_tracker,
+                      file_pattern=file_pattern,
+                      compression_type=compression_type,
+                      allow_malformed_records=allow_malformed_records,
+                      representative_header_lines=representative_header_lines,
+                      splittable_bgzf=splittable_bgzf,
+                      pre_infer_headers=pre_infer_headers,
+                      sample_name_encoding=sample_name_encoding,
+                      use_1_based_coordinate=use_1_based_coordinate,
+                      move_hom_ref_calls=move_hom_ref_calls,
+                      **kwargs)
+
+      self.chunk_size = chunk_size
+      self.max_workers = max_workers or mp.cpu_count()
+
+
+    def _read_records_chunk(self, start_index: int, end_index: int) -> list:
+        """
+        Read a chunk of records from VCF file
+
+        Args:
+            start_index: Starting record index
+            end_index: Ending record index
+
+        Returns:
+            List of converted records
+        """
+        records = []
+
+        try:
+            with pysam.VariantFile(self._file_name, 'r') as vcf:
+                breakpoint()
+                for i, record in enumerate(vcf):
+                    if i >= start_index and i < end_index:
+                        converted_record = self._convert_to_variant(record)
+                        records.append(converted_record)
+                    elif i >= end_index:
+                        break
+
+        except Exception as e:
+            print(f"Error reading chunk [{start_index}:{end_index}]: {e}")
+
+        return records
+
+    def _get_total_records(self) -> int:
+        """Get total number of records in VCF file"""
+        count = 0
+        try:
+            with pysam.VariantFile(self._file_name, 'r') as vcf:
+                for _ in vcf:
+                    count += 1
+        except Exception as e:
+            print(f"Error counting records: {e}")
+
+        return count
+
+    def _create_chunks(self) -> list[tuple[int, int]]:
+        """
+        Create list of (start_index, end_index) for chunking
+
+        Returns:
+            List of chunk boundaries
+        """
+        total_records = self._get_total_records()
+        chunks = []
+
+        for start in range(0, total_records, self.chunk_size):
+            end = min(start + self.chunk_size, total_records)
+            chunks.append((start, end))
+
+        return chunks
+
+    def get_record_iterator(self) -> Iterator:
+        """
+        Returns an iterator over all records in the file
+        Processes chunks in parallel and yields records in order
+        """
+        chunks = self._create_chunks()
+        if not chunks:
+            return iter([])
+
+        result_queue = queue.Queue()
+
+        def process_chunks():
+            """Process chunks in parallel using ProcessPoolExecutor"""
+            with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+              breakpoint()
+              futures = [executor.submit(self._read_records_chunk, start, end) for start, end in chunks]
+
+              for future in as_completed(futures):
+                try:
+                  chunk_records = future.result()
+                  for record in chunk_records:
+                    result_queue.put(record)
+                except Exception as e:
+                  logging.error(f"Error processing chunk: {e}")
+
+              result_queue.put(None)
+
+        # Start processing
+        processor_thread = threading.Thread(target=process_chunks)
+        processor_thread.start()
+
+        # Yield records
+        while True:
+            try:
+                record = result_queue.get(timeout=1.0)
+                if record is None:
+                    break
+                yield record
+            except queue.Empty:
+                if not processor_thread.is_alive():
+                    break
+                continue
+
+        processor_thread.join()
+
+    def get_file_info(self) -> dict:
+        """Get basic file information"""
+        try:
+            with pysam.VariantFile(self._file_name, 'r') as vcf:
+                samples = list(vcf.header.samples) if hasattr(vcf.header, 'samples') else []
+
+            return {
+                '_file_name': self._file_name,
+                'file_size_mb': os.path.getsize(self._file_name) / (1024 * 1024),
+                'total_records': self._get_total_records(),
+                'sample_count': len(samples),
+                'samples': samples,
+                'chunk_size': self.chunk_size,
+                'max_workers': self.max_workers
+            }
+        except Exception as e:
+            return {'error': str(e)}

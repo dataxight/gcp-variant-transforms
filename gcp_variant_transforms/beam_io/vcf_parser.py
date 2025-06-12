@@ -30,6 +30,8 @@ from apache_beam.io import filesystems
 from apache_beam.io import textio
 from pysam import libcbcf
 import pysam
+import threading
+import zmq
 import tempfile
 from io import StringIO
 
@@ -701,69 +703,147 @@ class PySamParser(VcfParser):
 
 class TextStreamer:
     """
-    A class that manages a stream with file descriptors for writing and reading text lines.
-    Uses socket.socketpair() to create connected sockets with file descriptors.
+    A class that provides a file-descriptor-backed stream for writing and reading 
+    text lines, using ZMQ for in-process message passing.
+
+    This allows a producer to write lines of text via the `write_line` method,
+    while a consumer (e.g., a third-party module) can read these lines from a
+    standard file descriptor, ensuring that data is read in the same order it
+    was written.
     """
-    
+
     def __init__(self):
-        """Initialize the StreamReader with connected sockets for read/write operations."""
-        # Create a pair of connected sockets
-        self.read_socket, self.write_socket = socket.socketpair()
-        self.read_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)  # 1MB
-        self.write_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)  # 1MB
+        """Initialize the TextStreamer with ZMQ sockets and a pipe."""
+        # A single ZMQ context for the entire object lifetime
+        self.context = zmq.Context.instance()
         
-        # Get file descriptors
-        self.read_fd = self.read_socket.fileno()
-        self.write_fd = self.write_socket.fileno()
+        # In-process transport is highly efficient for thread-to-thread communication
+        self.endpoint = "inproc://textstreamer"
         
-        # Create file objects from the sockets
-        self.write_file = self.write_socket.makefile('w')
+        # PUSH socket for writing (producer)
+        self.push_socket = self.context.socket(zmq.PUSH)
+        self.push_socket.set_hwm(1000)
+        self.push_socket.connect(self.endpoint)
+        
+        # PULL socket for reading (consumer, used by the bridge thread)  
+        self.pull_socket = self.context.socket(zmq.PULL)
+        self.pull_socket.set_hwm(1000)
+        self.pull_socket.bind(self.endpoint)
+
+        # Create a standard OS pipe. The read-end will be exposed to consumers.
+        # The write-end is used by our internal bridge thread.
+        self.read_fd, self._write_fd = os.pipe()
         
         self._closed = False
-    
-    def write_line(self, line: str) -> None:
-        """
-        Write a text line to the stream.
         
+        # Start the background thread that bridges ZMQ messages to the pipe's write-end
+        self._bridge_thread = threading.Thread(target=self._bridge_worker, daemon=True)
+        self._bridge_thread.start()
+
+    def _bridge_worker(self):
+        """
+        The core worker that runs in a background thread.
+        It continuously pulls messages from the ZMQ socket and writes them
+        into the pipe, making them available on `read_fd`.
+        """
+        try:
+            while not self._closed:
+                # Poll the socket with a timeout to allow for a clean shutdown check
+                if self.pull_socket.poll(timeout=100):  # 100ms timeout
+                    # Receive a message. This is a blocking call within the poll block.
+                    message_bytes = self.pull_socket.recv()
+                    # Write the received bytes directly to the pipe.
+                    # This write will block if the pipe buffer is full.
+                    os.write(self._write_fd, message_bytes)
+        except zmq.ZMQError:
+            # This is expected when the context is terminated or socket is closed.
+            pass
+        finally:
+            # Clean up the write-end of the pipe when the thread exits.
+            os.close(self._write_fd)
+    
+    def write_line(self, line: str):
+        """
+        Writes a line of text to the stream. A newline is automatically appended.
+
         Args:
-            line (str): The text line to write to the stream
+            line (str): The text line to write.
+
+        Raises:
+            ValueError: If the streamer has been closed.
         """
         if self._closed:
-            raise ValueError("StreamReader is closed")
+            raise ValueError("Cannot write to a closed TextStreamer")
         
-        # Ensure line ends with newline
+        # Ensure the line ends with a newline for readline() compatibility
         if not line.endswith('\n'):
             line += '\n'
         
-        self.write_file.write(line)
-        self.write_file.flush()  # Ensure data is written immediately
-    
-    def close(self) -> None:
-        """Close both read and write sides of the stream."""
-        if not self._closed:
-            if hasattr(self, 'write_socket'):
-                try:
-                    self.write_socket.close()
-                except (OSError, ValueError):
-                    pass  # Already closed
-            if hasattr(self, 'read_socket'):
-                try:
-                    self.read_socket.close()
-                except (OSError, ValueError):
-                    pass  # Already closed
-            self._closed = True
-    
-    @property
-    def read_fd_number(self) -> int:
+        # Send the line through the ZMQ PUSH socket. This is a blocking call.
+        self.push_socket.send_string(line)
+
+    def get_read_fd(self) -> int:
         """
-        Get the read file descriptor for client use.
-        
+        Returns the raw file descriptor for reading. This fd can be used with
+        modules like `select` or passed to other processes.
+
         Returns:
-            int: The read file descriptor that clients can use directly
+            int: The readable file descriptor.
         """
         if self._closed:
-            raise ValueError("StreamReader is closed")
+            raise ValueError("TextStreamer is closed")
         return self.read_fd
+
+    def get_read_file(self):
+        """
+        Returns a new, buffered file object for reading from the stream.
+        This is the recommended way for third-party modules to read line-by-line.
+        It duplicates the file descriptor, so closing this file object will not
+        affect the streamer.
+
+        Returns:
+            A file-like object opened for reading ('r' mode).
+        """
+        if self._closed:
+            raise ValueError("TextStreamer is closed")
+        
+        # Duplicate the file descriptor to provide a safe, independent handle
+        dup_fd = os.dup(self.read_fd)
+        # Create a buffered file object from the duplicated descriptor
+        return os.fdopen(dup_fd, 'r')
+
+    def close(self):
+        """
+        Closes all sockets and file descriptors, and stops the background thread.
+        This method is idempotent and safe to call multiple times.
+        """
+        if not self._closed:
+            self._closed = True
+            
+            # Close sockets first to unblock the bridge thread
+            self.push_socket.close()
+            self.pull_socket.close()
+            
+            # Wait for the bridge thread to finish its work and exit
+            self._bridge_thread.join(timeout=1.0)
+            
+            # The bridge thread closes the write_fd, so we only close the read_fd.
+            # It's also safe to try closing it here in case the thread had an issue.
+            try:
+                os.close(self.read_fd)
+            except OSError:
+                pass # May already be closed
+            
+            # The context is shared, so we don't terminate it here.
+            # Let the creator of the context handle its termination.
+            # If you created it with .instance(), it's a singleton managed by pyzmq.
+            # If you created it with zmq.Context(), you would call self.context.term()
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
     
 class PySamParserWithSocket(PySamParser):
   def __init__(
@@ -825,7 +905,7 @@ class PySamParserWithSocket(PySamParser):
     self._text_streamer.write_line(data_line)
     try:
         if self._vcf_reader is None:
-            self._vcf_reader = libcbcf.VariantFile(self._text_streamer.read_fd_number, 'r')
+            self._vcf_reader = libcbcf.VariantFile(self._text_streamer.get_read_fd(), 'r')
         record = next(iter(self._vcf_reader))
         variant = self._convert_to_variant(record)
         return variant

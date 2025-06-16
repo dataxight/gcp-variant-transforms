@@ -709,8 +709,8 @@ class TextStreamer:
         """Initialize the StreamReader with connected sockets for read/write operations."""
         # Create a pair of connected sockets
         self.read_socket, self.write_socket = socket.socketpair()
-        self.read_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)  # 1MB
-        self.write_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)  # 1MB
+        self.read_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 10 * 1024*1024)  # 10MB
+        self.write_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 10 * 1024*1024)  # 10MB
         
         # Get file descriptors
         self.read_fd = self.read_socket.fileno()

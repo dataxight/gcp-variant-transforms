@@ -846,9 +846,10 @@ class PySamParserWithFileStreaming(PySamParser):
         record = list(self._vcf_reader)[-1]
         variant = self._convert_to_variant(record)
         return variant
-    except Exception as e:
-        print(f"Error parsing VCF line: {e}")
-        return None
+    except (ValueError, StopIteration, TypeError) as e:
+      logging.warning('VCF record read failed in %s for line %s: %s',
+                      self._file_name, data_line, str(e))
+      return MalformedVcfRecord(self._file_name, data_line, str(e))
 
   def send_kill_signal_to_child(self):
     if self._vcf_reader is not None:

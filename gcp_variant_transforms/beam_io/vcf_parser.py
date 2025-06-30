@@ -405,7 +405,7 @@ class VcfParser():
         return record
       else:
         raise ValueError('VCF record read failed in %s for line %s: %s' %
-                         (self._file_name, text_line, "Malformed record"))
+                         (self._file_name, text_line, str(record.error)))
 
   def __iter__(self):
     return self
@@ -837,8 +837,7 @@ class PySamParserWithFileStreaming(PySamParser):
         # only for the first data line
         if self._vcf_reader is None:
             self._text_streamer.rewind()
-            self._vcf_reader = libcbcf.VariantFile(self._text_streamer._temp_file, 'r')
-        breakpoint()
+            self._vcf_reader = libcbcf.VariantFile(self._text_streamer._temp_file.name, 'r')
         record = next(self._vcf_reader)
         variant = self._convert_to_variant(record)
         return variant

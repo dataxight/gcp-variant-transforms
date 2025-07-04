@@ -495,7 +495,7 @@ def decompress_gz_files(input_pattern: str) -> List[str]:
             allocation_policy = AllocationPolicy(
                 instances=[
                     AllocationPolicy.InstancePolicyOrTemplate(
-                        policy=AllocationPolicy.InstancePolicy(machine_type="e2-standard-2")
+                        policy=AllocationPolicy.InstancePolicy(machine_type="e2-medium")
                     )
                 ]
             )
@@ -522,13 +522,16 @@ def decompress_gz_files(input_pattern: str) -> List[str]:
                     raise RuntimeError(f"Batch job {job_id} failed")
 
                 logging.info("Waiting for batch job %s to complete...", job_id)
-                time.sleep(20)
+                time.sleep(10)
                 job_response = batch_client.get_job(name=response.name)
 
             logging.info("Decompressed %s to %s", blob.name, destination_blob_name)
             blob = bucket.blob(destination_blob_name)
 
-        list_decompressed_patterns.append(get_gsuri(blob))
+        if not blob.name.endswith(".tbi"):
+            list_decompressed_patterns.append(get_gsuri(blob))
+        else:
+            logging.info("Skipping index file: %s", blob.name)
 
     return list_decompressed_patterns
 

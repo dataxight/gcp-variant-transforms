@@ -24,6 +24,7 @@ This class has 2 main operating modes:
      available at gcp_variant_transforms/testing/data/misc/*.yaml
 """
 
+import logging
 
 from collections import defaultdict
 import re
@@ -277,6 +278,7 @@ class VariantSharding():
       shard_index = self._region_to_shard.get(chrom, _UNDEFINED_SHARD_INDEX)
 
     if shard_index == _UNDEFINED_SHARD_INDEX:
+      logging.warning(f"Position {pos} on chromosome {chrom} left as residual because it is not defined in any region in the sharding config")
       return self._residual_index
     else:
       return shard_index

@@ -278,7 +278,7 @@ class VariantSharding():
       shard_index = self._region_to_shard.get(chrom, _UNDEFINED_SHARD_INDEX)
 
     if shard_index == _UNDEFINED_SHARD_INDEX:
-      logging.warning(f"Position {pos} on chromosome {chrom} left as residual because its shard index cannot be determined from its region")
+      logging.warning(f"Position {pos} on chromosome {chrom} left as residual because its region is not defined in the sharding config")
       return self._residual_index
     else:
       return shard_index

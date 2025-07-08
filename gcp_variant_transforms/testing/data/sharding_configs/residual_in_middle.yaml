@@ -4,7 +4,7 @@
        - "chr1:0-1,000,000"
      partition_range_end: 1,000,000
 -  output_table:
-     table_name_suffix: "all_remaining"
+     table_name_suffix: "residual"
      regions:
        - "residual"
      partition_range_end: 249,240,615

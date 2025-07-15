@@ -108,6 +108,7 @@ def create_runner(
         pipeline_args,
         watchdog_file,
         watchdog_file_update_interval_seconds,
+        known_args.number_of_runnables_per_job
     )
     return runner
 
@@ -134,6 +135,7 @@ class VepRunner:
         pipeline_args,  # type: List[str]
         watchdog_file,  # type: Optional[str]
         watchdog_file_update_interval_seconds,  # type: int
+        number_of_runnables_per_job # type: int
     ):
         # type: (...) -> None
         """Constructs an instance for running VEP.
@@ -177,6 +179,7 @@ class VepRunner:
         self._operation_name_to_io_infos = {}
         self._operation_name_to_logs = {}
         self._max_num_workers = 10
+        self._number_of_runnables_per_job = number_of_runnables_per_job
 
     def _make_vep_cache_path(self, vep_cache_path):
         # type: (str) -> str
@@ -429,6 +432,17 @@ class VepRunner:
             return "Job failed without detailed error."
         return ""
 
+    def _calculate_chunk_size(self, list_file) -> List:
+
+        floor = 0
+        ceil = int(math.ceil(len(list_file) / self._number_of_runnables_per_job))
+        chunks = [
+            list_file[i * self._number_of_runnables_per_job : (i + 1) * self._number_of_runnables_per_job]
+            for i in range(floor, ceil)
+        ]
+
+        return chunks
+
     def run_on_all_files(self):
         # type: () -> None
         """Runs VEP on all input files.
@@ -452,14 +466,8 @@ class VepRunner:
             )
         logging.info("Number of files: %d", len(match_results[0].metadata_list))
 
-        floor = 0
-        runnable_per_chunk = 95
-        ceil = int(math.ceil(len(match_results[0].metadata_list) / runnable_per_chunk))
-        chunks = [
-            match_results[0].metadata_list[i * runnable_per_chunk : (i + 1) * runnable_per_chunk]
-            for i in range(floor, ceil)
-        ]
-        logging.info("Found %d chunks of files to process, each with at most %d files.", len(chunks), runnable_per_chunk)
+        chunks = self._calculate_chunk_size(match_results[0].metadata_list)
+        logging.info("Found %d chunks of files to process, each with at most %d files.", len(chunks), self._number_of_runnables_per_job)
 
         for i, chunk in enumerate(chunks):
             logging.info("Chunk %d/%d: %d files", i + 1, len(chunks), len(chunk))
@@ -557,7 +565,7 @@ class VepRunner:
                 _GSUTIL_IMAGE,
                 "sh",
                 "-c",
-                f"gsutil -m rsync -r -x \".*_vep_output\.vcf$\" {input_path} {local_input_dir} 2>&1",
+                f"gsutil -m rsync -r {input_path} {local_input_dir} 2>&1",
             )
         )
 

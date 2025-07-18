@@ -432,13 +432,19 @@ class VepRunner:
             return "Job failed without detailed error."
         return ""
 
-    def _calculate_chunk_size(self, list_file) -> List:
+    def _calculate_chunk_size(self, list_file: List) -> List:
+        """ Calculates the chunk size for the input files.
+        The input files are split into chunks of size
+        Args:
+            list_file (list): List of input files to be processed.
 
-        floor = 0
+        Returns:
+            List: List of chunks, each containing a subset of the input files.
+        """
         ceil = int(math.ceil(len(list_file) / self._number_of_runnables_per_job))
         chunks = [
             list_file[i * self._number_of_runnables_per_job : (i + 1) * self._number_of_runnables_per_job]
-            for i in range(floor, ceil)
+            for i in range(0, ceil)
         ]
 
         return chunks
@@ -577,7 +583,7 @@ class VepRunner:
                 self._vep_image_uri, "rm", "-r", "-f", _LOCAL_OUTPUT_DIR
             )
         )
-        # TODO(nhon): Add watchdog
+
         # Run VEP
         for input_file, output_file in io_infos.io_map.items():
             base_input = "/".join(input_file.split("/")[-2:])
@@ -591,6 +597,7 @@ class VepRunner:
                 )
             )
 
+        # TODO(nhon): Add watchdog
         # if self._watchdog_file:
         #     runnables.append(self._make_runnable(
         #         self._vep_image_uri,

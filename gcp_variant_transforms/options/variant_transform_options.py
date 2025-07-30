@@ -369,7 +369,7 @@ class AnnotationOptions(VariantTransformsOptions):
               'process of running VEP pipelines.'))
     parser.add_argument(
         '--' + AnnotationOptions._VEP_IMAGE_FLAG,
-        default='gcr.io/cloud-lifesciences/vep:104',
+        default='gcr.io/cloud-lifesciences/vep:104', # TODO: Change Docker URI to Google hosted one
         help=('The URI of the latest docker image for VEP.'))
     parser.add_argument(
         '--' + AnnotationOptions._VEP_CACHE_FLAG,
@@ -434,7 +434,7 @@ class AnnotationOptions(VariantTransformsOptions):
     parser.add_argument(
         '--location',
         default='us-central1',
-        help=('The location in which to call Life Sciences API which will '
+        help=('The location in which to call Cloud Batch which will '
               'start the vep_runner.'))
 
   def validate(self, parsed_args):

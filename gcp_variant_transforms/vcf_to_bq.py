@@ -444,14 +444,13 @@ def _get_avro_root_path(beam_pipeline_options):
                                       datetime.now().strftime('%Y%m%d_%H%M%S'),
                                       '')
 
-def decompress_gz_files(input_pattern: str) -> List[str]:
+def decompress_gz_files(input_pattern: str, region: str) -> List[str]:
     gcs_client = storage.Client()
     bucket_name, prefix = input_pattern.replace("gs://", "").split("/", 1)
     bucket = gcs_client.get_bucket(bucket_name)
     blobs = bucket.list_blobs(prefix=prefix)
 
     project_id = gcs_client.project
-    region = "us-central1"  # Change this to your desired region
 
     batch_client = batch_v1.BatchServiceClient()
     parent = f"projects/{project_id}/locations/{region}"
@@ -528,10 +527,10 @@ def decompress_gz_files(input_pattern: str) -> List[str]:
             logging.info("Decompressed %s to %s", blob.name, destination_blob_name)
             blob = bucket.blob(destination_blob_name)
 
-        if not blob.name.endswith(".tbi"):
-            list_decompressed_patterns.append(get_gsuri(blob))
-        else:
+        if blob.name.endswith(".tbi"):
             logging.info("Skipping index file: %s", blob.name)
+        else:
+            list_decompressed_patterns.append(get_gsuri(blob))
 
     return list_decompressed_patterns
 
@@ -544,7 +543,7 @@ def run(argv=None):
                                                          _COMMAND_LINE_OPTIONS)
 
   if any('.gz' in pattern for pattern in known_args.all_patterns):
-      all_patterns_handler = sum([decompress_gz_files(pattern) for pattern in known_args.all_patterns], [])
+      all_patterns_handler = sum([decompress_gz_files(pattern, known_args.location) for pattern in known_args.all_patterns], [])
       known_args.all_patterns = all_patterns_handler
 
   if known_args.auto_flags_experiment:

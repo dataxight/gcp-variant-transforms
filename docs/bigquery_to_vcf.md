@@ -47,7 +47,7 @@ COMMAND="bq_to_vcf \
   --output_file ${OUTPUT_FILE} \
   --job_name bq-to-vcf \
   --runner DataflowRunner"
-# TODO: Change Docker URI to Google hosted one
+# TODO: The Docker image must be rebuilt and hosted elsewhere
 docker run -v ~/.config:/root/.config \
   gcr.io/cloud-lifesciences/gcp-variant-transforms \
   --project "${GOOGLE_CLOUD_PROJECT}" \

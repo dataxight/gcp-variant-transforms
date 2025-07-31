@@ -370,7 +370,7 @@ class AnnotationOptions(VariantTransformsOptions):
               'process of running VEP pipelines.'))
     parser.add_argument(
         '--' + AnnotationOptions._VEP_IMAGE_FLAG,
-        default='gcr.io/cloud-lifesciences/vep:104', # TODO: Change Docker URI to Google hosted one
+        default='gcr.io/cloud-lifesciences/vep:104', # TODO: The Docker image must be rebuilt and hosted elsewhere
         help=('The URI of the latest docker image for VEP.'))
     parser.add_argument(
         '--' + AnnotationOptions._VEP_CACHE_FLAG,

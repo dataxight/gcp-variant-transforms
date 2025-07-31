@@ -78,7 +78,7 @@ minimum number of flags to enable this feature is `--run_annotation_pipeline`
 and `--annotation_output_dir [GCS_PATH]` where `[GCS_PATH]` is a path in a GCS
 bucket that your project owns.
 
-Variant annotation will start separate multiple Batch job to run
+Variant annotation will start separate multiple Batch jobs to run
 the vep_runner, the number of Batch jobs depend on both the size of your input files and the value you set for [`--number_of_runnables_per_job`](#details). You can provide `--location` to specify the location to use
 for Cloud Batch. If not provided, it will default to `us-central1`.
 The compute region will come from the `--region` flag passed from docker.
@@ -106,7 +106,7 @@ followed by `_vep_output.vcf`. Note that if this directory already exists, then
 Variant Transforms fails. This is to prevent unintentional overwriting of old
 annotated VCFs.
 
-* `--number_of_runnables_per_job` The maximum number of runnables (e.g. VEP jobs) to create per job (default: 95). The batch system only supports a maximum of 100 runnables per job, so this flag cannot be set higher than 95. This ensures that there are always 5 runnables reserved for system cycles. For larger input files, it is recommended to set a smaller value for the this flag to achieve faster processing speeds
+* `--number_of_runnables_per_job` The maximum number of runnables (e.g. VEP jobs) to create per job (default: 95). The batch system only supports a maximum of 100 runnables per job, so this flag cannot be set higher than 95. This ensures that there are always 5 runnables reserved for system cycles. For larger input files, it is recommended to set a smaller value for the this flag to achieve faster processing speed
 
 * [`--shard_variants`](https://github.com/googlegenomics/gcp-variant-transforms/blob/master/gcp_variant_transforms/options/variant_transform_options.py#L290)
 by default, the input files are sharded into smaller temporary VCF files before
@@ -120,14 +120,14 @@ true. The default value should work for most cases. You may change this flag to
 a smaller value if you have a dataset with a lot of samples. Notice that
 pipeline may take longer to finish for smaller value of this flag.
 
-<!-- TODO: Change Docker URI to Google hosted one -->
+<!-- TODO: The Docker image must be rebuilt and hosted elsewhere -->
 * [`--vep_image_uri`](https://github.com/googlegenomics/gcp-variant-transforms/blob/c4659bba2cf577d64f15db5cd9f477d9ea2b51b0/gcp_variant_transforms/options/variant_transform_options.py#L196)
 the docker image for VEP created using the
 [Dockerfile in variant-annotation](https://github.com/googlegenomics/variant-annotation/tree/master/batch/vep)
 GitHub repo. By default `gcr.io/cloud-lifesciences/vep:104` is used which is
 a public image that Google maintains (VEP version 104).
 
-<!-- TODO: Change Docker URI to Google hosted one -->
+<!-- TODO: The Docker image must be rebuilt and hosted elsewhere -->
 * [`--vep_cache_path`](https://github.com/googlegenomics/gcp-variant-transforms/blob/c4659bba2cf577d64f15db5cd9f477d9ea2b51b0/gcp_variant_transforms/options/variant_transform_options.py#L200)
 the GCS location that has the compressed version of VEP cache. This file can be
 created using

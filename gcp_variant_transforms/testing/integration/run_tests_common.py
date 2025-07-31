@@ -27,7 +27,7 @@ import time
 from collections import namedtuple
 from typing import Dict, List, Optional  # pylint: disable=unused-import
 
-# TODO: Change Docker URI to Google hosted one
+# TODO: The Docker image must be rebuilt and hosted elsewhere
 _DEFAULT_IMAGE_NAME = 'gcr.io/cloud-lifesciences/gcp-variant-transforms'
 _DEFAULT_SDK_CONTAINER_IMAGE_NAME = 'gcr.io/cloud-lifesciences/variant-transforms-custom-runner'
 

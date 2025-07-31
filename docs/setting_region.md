@@ -32,7 +32,7 @@ See the list of [Currently Available Locations](https://cloud.google.com/batch/d
 In addition to this requirment you might also choose to run Variant Transforms in a specific region following your project’s security and compliance requirements. For example, in order to restrict your processing job to europe-west4 (Netherlands), set the region and location as follows:
 
 ```bash
-# TODO: Change Docker URI to Google hosted one
+# TODO: The Docker image must be rebuilt and hosted elsewhere
 COMMAND="/opt/gcp_variant_transforms/bin/vcf_to_bq ...
 
 docker run gcr.io/cloud-lifesciences/gcp-variant-transforms \

@@ -69,6 +69,8 @@ from gcp_variant_transforms.transforms import combine_sample_ids
 from gcp_variant_transforms.transforms import densify_variants
 from gcp_variant_transforms.transforms import sample_mapping_table
 
+from gcp_variant_transforms import helper
+helper.setup_logging()
 
 
 _BASE_QUERY_TEMPLATE = 'SELECT {COLUMNS} FROM `{INPUT_TABLE}`'

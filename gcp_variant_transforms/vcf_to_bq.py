@@ -78,6 +78,9 @@ from gcp_variant_transforms.transforms import shard_variants
 from gcp_variant_transforms.transforms import variant_to_avro
 from gcp_variant_transforms.transforms import write_variants_to_shards
 
+from gcp_variant_transforms import helper
+helper.setup_logging()
+
 _COMMAND_LINE_OPTIONS = [
     variant_transform_options.VcfReadOptions,
     variant_transform_options.BigQueryWriteOptions,

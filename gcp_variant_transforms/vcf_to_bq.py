@@ -477,9 +477,9 @@ def decompress_gz_files(input_pattern: str, region: str) -> List[str]:
 
             command = f"""
             set -e &&
-            gsutil cp {get_gsuri(blob)} {local_gz_path} &&
-            gunzip -c {local_gz_path} > {local_decompressed_path} &&
-            gsutil cp {local_decompressed_path} {get_gsuri(bucket.blob(destination_blob_name))} &&
+            gsutil cp {get_gsuri(blob)} {local_gz_path} 2>&1 &&
+            gunzip -c {local_gz_path} > {local_decompressed_path} 2>&1 &&
+            gsutil cp {local_decompressed_path} {get_gsuri(bucket.blob(destination_blob_name))} 2>&1 &&
             echo "Decompressed {blob.name} to {destination_blob_name}"
             """
             runnable = Runnable(
@@ -817,7 +817,7 @@ def run(argv=None):
                  avro_root_path)
     raise e
   else:
-    logging.warning('All AVRO files were successfully loaded to BigQuery.')
+    logging.info('All AVRO files were successfully loaded to BigQuery.')
     if known_args.keep_intermediate_avro_files:
       logging.info('Since "--keep_intermediate_avro_files" flag is set, the '
                    'AVRO files are kept and stored at: %s', avro_root_path)

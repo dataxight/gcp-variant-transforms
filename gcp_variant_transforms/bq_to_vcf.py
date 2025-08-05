@@ -179,7 +179,7 @@ def _bigquery_to_vcf_shards(
   logging.info('Processing BigQuery query %s:', variant_query)
   project_id, dataset_id, table_id = bigquery_util.parse_table_reference(
       known_args.input_table)
-  bq_variant_source = bigquery.BigQuerySource(query=variant_query,
+  bq_variant_source = bigquery.ReadFromBigQuery(query=variant_query,
                                               validate=True,
                                               use_standard_sql=True)
   annotation_names = _extract_annotation_names(schema)
@@ -199,7 +199,7 @@ def _bigquery_to_vcf_shards(
       PROJECT_ID=sample_project_id,
       DATASET_ID=sample_dataset_id,
       TABLE_NAME=sample_info_table)
-  bq_sample_source = bigquery.BigQuerySource(query=sample_query,
+  bq_sample_source = bigquery.ReadFromBigQuery(query=sample_query,
                                              validate=True,
                                              use_standard_sql=True)
   with beam.Pipeline(options=beam_pipeline_options) as p:

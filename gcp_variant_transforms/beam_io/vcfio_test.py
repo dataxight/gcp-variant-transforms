@@ -41,7 +41,9 @@ from gcp_variant_transforms.testing import testdata_util
 from gcp_variant_transforms.testing.temp_dir import TempDir
 
 # Note: mixing \n and \r\n to verify both behaviors.
-# Note: Header lines number need to exceed 17 lines for the test case to pass.
+# WARN: We observed that if the header buffer size is smaller than a threshold, which 
+# we don't now exactly how much, the PySamParserWithFileStreaming will fail to read
+# Real VCF files don't suffer this issue since because they always have big enough header
 _SAMPLE_HEADER_LINES = [
     '##fileformat=VCFv4.2\n',
     '##fileDate=20090805\n',

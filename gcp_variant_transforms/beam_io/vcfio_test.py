@@ -41,16 +41,27 @@ from gcp_variant_transforms.testing import testdata_util
 from gcp_variant_transforms.testing.temp_dir import TempDir
 
 # Note: mixing \n and \r\n to verify both behaviors.
+# Note: Header lines number need to exceed 17 lines for the test case to pass.
 _SAMPLE_HEADER_LINES = [
     '##fileformat=VCFv4.2\n',
+    '##fileDate=20090805\n',
+    '##source=myImputationProgramV3.1\n',
+    '##reference=1000GenomesPilot-NCBI36\n',
+    '##phasing=partial\n',
     '##FILTER=<ID=PASS,Description="All filters passed">\n',
-    '##FILTER=<ID=q10,Description="Quality is less than 10.">\n', 
+    '##FILTER=<ID=q10,Description="Quality below 10">\n',
     '##FILTER=<ID=s50,Description="Less than 50% of samples have data">\n',
-    '##INFO=<ID=NS,Number=1,Type=Integer,Description="Number samples">\n',
+    '##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of Samples With Data">\n',
+    '##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">\n',
     '##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency">\n',
+    '##INFO=<ID=AA,Number=1,Type=String,Description="Ancestral Allele">\n',
+    '##INFO=<ID=DB,Number=0,Type=Flag,Description="dbSNP membership, build 129">\n',
+    '##INFO=<ID=H2,Number=0,Type=Flag,Description="HapMap2 membership">\n',
     '##INFO=<ID=SVTYPE,Number=1,Type=String,Description="Type of structural variant">\n',
     '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\r\n',
     '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">\n',
+    '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">\n',
+    '##FORMAT=<ID=HQ,Number=2,Type=Integer,Description="Haplotype Quality">\n',
     '##FORMAT=<ID=PS,Number=1,Type=Integer,Description="Phase Set">\n',
     '#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\tSample2\r'
     '\n',
